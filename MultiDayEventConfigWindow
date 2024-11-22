@@ -1,0 +1,403 @@
+using Bingo.Features.MultiDayDynamicMOTD.View;
+using Bingo.Services.UIService.Views;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.UIElements;
+
+namespace Bingo.Features.MultiDayDynamicMOTD.Editor
+{
+    public class MultiDayEventConfigWindow : EditorWindow
+    {
+        private string _backgroundThemesPath = "Assets/AssetBundles/_MultiDayDynamicMOTD/_backgrounds";
+        private static string _eventsThemesPath = "Assets/AssetBundles/_MultiDayDynamicMOTD/_events";
+
+        private List<EventConfig> _eventConfigs = new List<EventConfig>();
+        private VisualElement _eventContainer;
+
+        private TextField _titleField;
+        private TextField _dayField;
+        private TextField _footerField;
+        private TextField _closeButtonField;
+        private PopupField<string> _backgroundThemeDropdown;
+        private List<string> _backgroundThemes = new List<string>();
+
+        private MultiDayDynamicBackgroundView _multiDayDynamicBackgroundView;
+
+        [MenuItem("Tools/Multi-Day Event Configurator")]
+        public static void ShowWindow()
+        {
+            GetWindow<MultiDayEventConfigWindow>("Multi-Day Event Configurator");
+        }
+
+        private void OnEnable()
+        {
+            var root = rootVisualElement;
+
+            // Create UI for global fields
+            CreateGlobalFieldsUI(root);
+
+            // Add container for event configurations
+            _eventContainer = new VisualElement();
+            root.Add(_eventContainer);
+
+            // Add "Add Event" button
+            var addEventButton = new Button(AddNewEventConfig) { text = "Add New Event" };
+            root.Add(addEventButton);
+        }
+
+        private void CreateGlobalFieldsUI(VisualElement root)
+        {
+            // Title Field
+            _titleField = new TextField("Title:");
+            root.Add(_titleField);
+
+            // Day Field
+            _dayField = new TextField("Day:");
+            root.Add(_dayField);
+
+            // Footer Field
+            _footerField = new TextField("Footer:");
+            root.Add(_footerField);
+
+            // Close Button Field
+            _closeButtonField = new TextField("Close Button Text:");
+            root.Add(_closeButtonField);
+
+            // Background Theme Dropdown
+            LoadBackgroundThemes();
+            _backgroundThemeDropdown = new PopupField<string>("Background Theme", _backgroundThemes, 0);
+            root.Add(_backgroundThemeDropdown);
+
+            // Instantiate Button
+            var instantiateButton = new Button(InstantiateBackgroundWithEvents)
+            {
+                text = "Instantiate Background with Events"
+            };
+            root.Add(instantiateButton);
+        }
+
+        private void LoadBackgroundThemes()
+        {
+	        if (Directory.Exists(_backgroundThemesPath))
+	        {
+		        // Get all subdirectories representing themes
+		        var directories = Directory.GetDirectories(_backgroundThemesPath);
+		        foreach (var dir in directories)
+		        {
+			        string themeName = Path.GetFileName(dir).TrimStart('_'); // Remove leading underscore if present
+			        _backgroundThemes.Add(themeName);
+		        }
+
+		        Debug.Log($"Loaded {_backgroundThemes.Count} themes for background dropdown.");
+	        }
+	        else
+	        {
+		        Debug.LogError($"Backgrounds directory not found: {_backgroundThemesPath}");
+	        }
+        }
+
+			
+       private void InstantiateBackgroundWithEvents()
+{
+
+	if (_multiDayDynamicBackgroundView != null)
+	{
+		DestroyImmediate(_multiDayDynamicBackgroundView.gameObject);
+	}
+	
+    // Get the selected background theme from the dropdown
+    var selectedTheme = _backgroundThemeDropdown.value;
+    if (string.IsNullOrEmpty(selectedTheme))
+    {
+        Debug.LogError("No theme selected.");
+        return;
+    }
+
+    Debug.Log($"Instantiating background and events for theme '_{selectedTheme}'");
+
+    // Add an underscore to the theme name
+    string adjustedThemeName = $"_{selectedTheme}";
+
+    // Construct the path to the selected theme's folder
+    string themePath = Path.Combine(_backgroundThemesPath, adjustedThemeName, "Prefabs").Replace("\\", "/");
+
+    // Ensure the folder exists
+    if (Directory.Exists(themePath))
+    {
+        // Find all prefabs in the folder (should contain only one)
+        var prefabFiles = Directory.GetFiles(themePath, "*.prefab");
+
+        if (prefabFiles.Length == 1)
+        {
+            // Load and instantiate the single prefab
+            var prefabPath = prefabFiles[0].Replace("\\", "/"); // Ensure forward slashes for Unity compatibility
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (prefab != null)
+            {RootCanvas rootCanvas = FindObjectOfType<RootCanvas>();
+	            if (rootCanvas == null)
+	            {
+		            Debug.LogError("RootCanvas not found in the scene.");
+		            return;
+	            }
+
+	            var instantiatedPrefab = (GameObject)PrefabUtility.InstantiatePrefab(prefab, rootCanvas.transform);
+	            if (instantiatedPrefab != null)
+	            {
+		            RectTransform rectTransform = instantiatedPrefab.GetComponent<RectTransform>();
+		            if (rectTransform != null)
+		            {
+			            rectTransform.anchoredPosition = Vector2.zero; // Set to center in parent
+			            rectTransform.localScale = Vector3.one; // Ensure the scale matches the canvas
+		            }
+		            else
+		            {
+			            // Fallback for non-UI prefabs
+			            instantiatedPrefab.transform.localPosition = Vector3.zero; // Set position relative to parent
+		            }
+
+		            instantiatedPrefab.SetActive(true); // Ensure it's active
+		            _multiDayDynamicBackgroundView = instantiatedPrefab.GetComponent<MultiDayDynamicBackgroundView>();
+		            if (_multiDayDynamicBackgroundView != null)
+		            {
+			            _multiDayDynamicBackgroundView.SetTextFields(_titleField.value, _dayField.value, _footerField.value, _closeButtonField.value);
+		            }
+		            else
+		            {
+			            Debug.LogError("MultiDayDynamicBackgroundView component not found on the instantiated prefab.");
+		            }
+
+		            Debug.Log($"Prefab '{prefab.name}' instantiated successfully.");
+	            }
+	            else
+	            {
+		            Debug.LogError("Failed to instantiate prefab.");
+	            }
+            }
+            else
+            {
+                Debug.LogError($"Failed to load prefab at path: {prefabPath}");
+            }
+        }
+        else if (prefabFiles.Length > 1)
+        {
+            Debug.LogError($"Multiple prefabs found in folder: {themePath}. Ensure only one prefab exists.");
+        }
+        else
+        {
+            Debug.LogError($"No prefab found in folder: {themePath}");
+        }
+    }
+    else
+    {
+        Debug.LogError($"Theme folder does not exist: {themePath}");
+    }
+
+    // Continue with event prefab instantiation logic as required
+    foreach (var config in _eventConfigs)
+    {
+        Debug.Log($"Event - Theme: {config.ThemeDropdown.value}, Item Map: {config.ItemMapDropdown.value}, Prefab: {config.PrefabDropdown.value}");
+
+        var eventPrefabPath = Path.Combine(_eventsThemesPath, config.ThemeDropdown.value, "Prefabs", config.PrefabDropdown.value + ".prefab").Replace("\\", "/");
+
+        if (File.Exists(eventPrefabPath))
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(eventPrefabPath);
+            if (prefab != null)
+            {
+                var instantiatedPrefab = (GameObject)PrefabUtility.InstantiatePrefab(prefab, _multiDayDynamicBackgroundView.EventsContainer.transform);
+                instantiatedPrefab.transform.position = Vector3.zero; // Adjust position as needed
+                instantiatedPrefab.SetActive(true);
+            }
+            else
+            {
+                Debug.LogError($"Failed to load event prefab at path: {eventPrefabPath}");
+            }
+        }
+        else
+        {
+            Debug.LogError($"Event prefab file does not exist: {eventPrefabPath}");
+        }
+    }
+}
+
+
+
+       private void AddNewEventConfig()
+       {
+	       var config = new EventConfig(_backgroundThemesPath);
+	       _eventConfigs.Add(config);
+
+	       var eventConfigUI = config.CreateUI(() =>
+		       {
+			       UpdateEventPrefabs(config);
+		       },
+		       (eventToRemove) =>
+		       {
+			       RemoveEventConfig(eventToRemove);
+		       });
+
+	       _eventContainer.Add(eventConfigUI);
+       }
+       
+       private void RemoveEventConfig(EventConfig eventConfig)
+       {
+	       if (_eventConfigs.Contains(eventConfig))
+	       {
+		       _eventConfigs.Remove(eventConfig);
+
+		       // Find the UI element associated with the event config and remove it
+		       var eventUI = _eventContainer.Children().FirstOrDefault(child =>
+			       child.userData == eventConfig); // Match by userData
+		       if (eventUI != null)
+		       {
+			       _eventContainer.Remove(eventUI); // Remove the UI element from the container
+		       }
+
+		       Debug.Log("Event UI removed successfully.");
+	       }
+	       else
+	       {
+		       Debug.LogError("Failed to remove event: Not found in the list.");
+	       }
+       }
+
+
+
+
+
+        private void UpdateEventPrefabs(EventConfig config)
+        {
+	        var selectedTheme = config.ThemeDropdown.value;
+	        var selectedItemMap = config.ItemMapDropdown.value;
+
+	        var prefabsPath = Path.Combine(_eventsThemesPath, selectedTheme, "Prefabs");
+
+	        Debug.Log($"Looking for prefabs in: {prefabsPath}");
+
+	        if (Directory.Exists(prefabsPath))
+	        {
+		        var prefabFiles = Directory.GetFiles(prefabsPath, "*.prefab");
+		        Debug.Log($"Found {prefabFiles.Length} prefab(s) for theme '{selectedTheme}', item map '{selectedItemMap}'.");
+
+		        config.PrefabDropdown.choices = new List<string>(prefabFiles)
+			        .ConvertAll(Path.GetFileNameWithoutExtension);
+	        }
+	        else
+	        {
+		        Debug.LogWarning($"Prefabs directory not found: {prefabsPath}");
+		        config.PrefabDropdown.choices = new List<string>();
+	        }
+
+	        if (config.PrefabDropdown.choices.Count > 0)
+	        {
+		        config.PrefabDropdown.SetValueWithoutNotify(config.PrefabDropdown.choices[0]);
+	        }
+	        else
+	        {
+		        Debug.LogWarning($"No prefabs found for theme '{selectedTheme}' and item map '{selectedItemMap}'.");
+	        }
+        }
+
+
+        private class EventConfig
+        {
+            public PopupField<string> ThemeDropdown { get; private set; }
+            public PopupField<string> ItemMapDropdown { get; private set; }
+            public PopupField<string> PrefabDropdown { get; private set; }
+
+            private readonly string _themesPath;
+            private List<string> _themes = new List<string>();
+            private List<string> _itemMaps = new List<string>();
+            private List<string> _prefabs = new List<string>();
+
+            public EventConfig(string themesPath)
+            {
+                _themesPath = themesPath;
+
+                // Load themes dynamically
+                _themes = Directory.Exists(themesPath)
+                    ? new List<string>(Directory.GetDirectories(themesPath)).ConvertAll(Path.GetFileName)
+                    : new List<string>();
+            }
+
+            public VisualElement CreateUI(System.Action onThemeOrItemMapChanged, System.Action<EventConfig> onRemoveClicked)
+            {
+	            var container = new VisualElement
+	            {
+		            style =
+		            {
+			            marginBottom = 20,
+			            paddingLeft = 10,
+			            paddingRight = 10,
+			            borderBottomWidth = 1,
+			            borderBottomColor = Color.gray
+		            }
+	            };
+
+	            container.userData = this; // Associate this config with its UI container
+
+	            // Theme Dropdown
+	            ThemeDropdown = new PopupField<string>("Theme", _themes, 0);
+	            container.Add(ThemeDropdown);
+
+	            // Item Map Dropdown
+	            ItemMapDropdown = new PopupField<string>("Item Map", _itemMaps, 0);
+	            container.Add(ItemMapDropdown);
+
+	            // Prefab Dropdown
+	            PrefabDropdown = new PopupField<string>("Prefab", _prefabs, 0);
+	            container.Add(PrefabDropdown);
+
+	            // Event listeners for dynamic updates
+	            ThemeDropdown.RegisterValueChangedCallback(evt =>
+	            {
+		            LoadItemMaps(evt.newValue);
+		            onThemeOrItemMapChanged.Invoke();
+	            });
+
+	            ItemMapDropdown.RegisterValueChangedCallback(evt => onThemeOrItemMapChanged.Invoke());
+
+	            // Add "Remove" button
+	            var removeButton = new Button(() => onRemoveClicked.Invoke(this))
+	            {
+		            text = "X",
+		            style =
+		            {
+			            alignSelf = Align.FlexEnd,
+			            marginTop = 10
+		            }
+	            };
+	            container.Add(removeButton);
+
+	            return container;
+            }
+
+
+
+            private void LoadItemMaps(string selectedTheme)
+            {
+	            var itemMapsPath = Path.Combine(_eventsThemesPath, selectedTheme, "Data");
+
+	            Debug.Log($"Loading Item Maps from: {itemMapsPath}");
+
+	            _itemMaps = Directory.Exists(itemMapsPath)
+		            ? new List<string>(Directory.GetFiles(itemMapsPath, "*.asset"))
+			            .ConvertAll(Path.GetFileNameWithoutExtension)
+		            : new List<string>();
+
+	            Debug.Log($"Found {_itemMaps.Count} item map(s) for theme '{selectedTheme}'.");
+
+	            ItemMapDropdown.choices = _itemMaps;
+
+	            if (_itemMaps.Count > 0)
+	            {
+		            ItemMapDropdown.SetValueWithoutNotify(_itemMaps[0]);
+	            }
+            }
+
+        }
+    }
+}
